@@ -1,14 +1,10 @@
 # vehicle-telemetry-platform
 
-One-command orchestration for the Vehicle Telemetry portfolio stack.
-
 This repo ties together three separate projects:
 
 - `vehicle-telemetry-api`: FastAPI backend, Postgres, migrations, seed data, and ingestion worker
 - `fleet-monitoring-dashboard`: React + TypeScript dashboard
 - `api-gateway-rate-limiter`: FastAPI gateway with Redis-backed token bucket rate limiting
-
-The integrated stack is optimized for demos and interview walkthroughs. The dashboard talks to the gateway, and the gateway proxies to the telemetry API, so normal UI usage exercises the reliability layer.
 
 ## Architecture
 
