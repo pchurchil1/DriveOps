@@ -1,0 +1,53 @@
+name: Integration Smoke
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    env:
+      TELEMETRY_API_CONTEXT: .ci/vehicle-telemetry-api
+      DASHBOARD_CONTEXT: .ci/fleet-monitoring-dashboard
+      GATEWAY_CONTEXT: .ci/api-gateway-rate-limiter
+      JWT_SECRET_KEY: ci-local-demo-secret
+
+    steps:
+      - name: Check out orchestration repo
+        uses: actions/checkout@v4
+
+      - name: Check out telemetry API
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/vehicle-telemetry-api
+          path: .ci/vehicle-telemetry-api
+
+      - name: Check out dashboard
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/fleet-monitoring-dashboard
+          path: .ci/fleet-monitoring-dashboard
+
+      - name: Check out gateway
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/api-gateway-rate-limiter
+          path: .ci/api-gateway-rate-limiter
+
+      - name: Validate Compose configuration
+        run: docker compose config --quiet
+
+      - name: Start integrated stack
+        run: docker compose up --build -d
+
+      - name: Run smoke checks
+        run: make smoke
+
+      - name: Show Compose logs
+        if: always()
+        run: docker compose logs --no-color
+
+      - name: Stop integrated stack
+        if: always()
+        run: docker compose down -v

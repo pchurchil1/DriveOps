@@ -1,4 +1,4 @@
-.PHONY: up down build logs ps health metrics reset
+.PHONY: up down build logs ps health metrics smoke reset
 
 up:
 	docker compose up --build
@@ -23,6 +23,9 @@ health:
 
 metrics:
 	curl -s http://localhost:$${GATEWAY_HOST_PORT:-18080}/metrics
+
+smoke:
+	LC_ALL=C LANG=C bash scripts/smoke.sh
 
 reset:
 	docker compose down -v

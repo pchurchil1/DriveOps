@@ -1,10 +1,24 @@
 # DriveOps: Vehicle Telemetry Platform
 
+One-command orchestration for a full-stack Vehicle Telemetry portfolio app.
+
 This repo ties together three separate projects:
 
-- `vehicle-telemetry-api`: FastAPI backend, Postgres, migrations, seed data, and ingestion worker
-- `fleet-monitoring-dashboard`: React + TypeScript dashboard
-- `api-gateway-rate-limiter`: FastAPI gateway with Redis-backed token bucket rate limiting
+- `vehicle-telemetry-api`: FastAPI backend, Postgres, Alembic migrations, seed data, JWT auth, role checks, and ingestion worker
+- `fleet-monitoring-dashboard`: React + TypeScript dashboard for fleet inventory and telemetry inspection
+- `api-gateway-rate-limiter`: FastAPI gateway with Redis-backed token bucket rate limiting, proxying, headers, health checks, and metrics
+
+The integrated stack is optimized for demos and interview walkthroughs. The dashboard talks to the gateway, and the gateway proxies to the telemetry API, so normal UI usage exercises auth, persistence, rate limiting, and the reliability layer.
+
+## What This Proves
+
+- A real browser UI can authenticate and inspect vehicle telemetry.
+- API traffic flows through a gateway before reaching the backend.
+- Protected routes require JWT auth and role-aware backend checks.
+- Data is persisted in Postgres and initialized through migrations plus seed data.
+- Redis-backed token buckets enforce rate limits and return standard rate-limit headers.
+- The gateway exposes health and Prometheus-style metrics.
+- The full system can be started, verified, and reset from this orchestration repo.
 
 ## Architecture
 
@@ -51,10 +65,20 @@ That creates the schema and demo login/data.
 
 - Docker Desktop running
 - `make`
-- The three sibling repos present at these paths:
+- `curl`
+- `python3`
+- The three sibling repos present at these default paths:
   - `../Vehicle Telemetry API/vehicle-telemetry-api`
   - `../Fleet Monitoring Dashboard/fleet-monitoring-dashboard`
   - `../api-gateway-rate-limiter/api-gateway-rate-limiter`
+
+If your repos live somewhere else, override the Compose build contexts:
+
+```bash
+TELEMETRY_API_CONTEXT=/path/to/vehicle-telemetry-api
+DASHBOARD_CONTEXT=/path/to/fleet-monitoring-dashboard
+GATEWAY_CONTEXT=/path/to/api-gateway-rate-limiter
+```
 
 ## First Run
 
@@ -65,7 +89,13 @@ cp .env.example .env
 make up
 ```
 
-Then open:
+Then, in another terminal:
+
+```bash
+make smoke
+```
+
+Open the dashboard:
 
 ```text
 http://localhost:15173
@@ -110,12 +140,32 @@ make ps       # show container state
 make logs     # follow all logs
 make health   # check telemetry API and gateway health
 make metrics  # print gateway Prometheus metrics
+make smoke    # run end-to-end portfolio smoke checks
 make reset    # stop containers and remove volumes
 ```
 
 Use `make reset` when you want a clean database and fresh seed data.
 
 ## Verify The Stack
+
+Run the full smoke check:
+
+```bash
+make smoke
+```
+
+The smoke check verifies:
+
+- Dashboard responds on the configured dashboard port.
+- Telemetry API health returns `ok`.
+- Gateway health returns `ok` and Redis is reachable.
+- Unauthenticated access to protected vehicle routes returns `401`.
+- Gateway responses include rate-limit headers.
+- Login works through the gateway.
+- Authenticated vehicle fetch returns the seeded Ford F-150.
+- Gateway metrics include `gateway_requests_total`.
+
+Manual checks are still useful during a walkthrough.
 
 Check the API directly:
 
@@ -172,13 +222,20 @@ Expected seed vehicle:
 ]
 ```
 
-## Use The Dashboard
+## Interview Demo Path
 
-1. Open `http://localhost:15173`.
-2. Sign in with `admin / password123`.
-3. View the vehicle list.
-4. Open the seeded Ford F-150.
-5. Inspect telemetry summary, ECUs, signals, and event timeline.
+Use [docs/demo-checklist.md](docs/demo-checklist.md) for a 3-5 minute walkthrough.
+
+Short version:
+
+1. Run `make smoke`.
+2. Open `http://localhost:15173`.
+3. Sign in with `admin / password123`.
+4. View the vehicle list.
+5. Open the seeded Ford F-150.
+6. Inspect telemetry summary, ECUs, signals, and event timeline.
+7. Show `make metrics`.
+8. Optionally demo rate limiting and failure behavior.
 
 The dashboard is built with:
 
@@ -284,6 +341,16 @@ Follow only telemetry API logs:
 ```bash
 docker compose logs -f telemetry-api
 ```
+
+## CI
+
+The top-level integration workflow validates Compose configuration, checks out the three sibling repos, starts the full stack, and runs `make smoke`.
+
+The individual product repos still own their own unit/build CI:
+
+- Backend API tests and Postgres integration tests
+- Dashboard lint/build
+- Gateway route, proxy, and rate limiter tests
 
 ## Troubleshooting
 
