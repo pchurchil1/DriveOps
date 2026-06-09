@@ -26,7 +26,7 @@ flowchart LR
     worker --> postgres
 ```
 
-## What Starts
+## How to use:
 
 `make up` starts:
 
