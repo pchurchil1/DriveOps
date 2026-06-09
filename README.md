@@ -1,4 +1,4 @@
-# vehicle-telemetry-platform
+# Vehicle Telemetry Platform
 
 This repo ties together three separate projects:
 
