@@ -1,4 +1,4 @@
-# Vehicle Telemetry Platform
+# DriveOps: Vehicle Telemetry Platform
 
 This repo ties together three separate projects:
 
