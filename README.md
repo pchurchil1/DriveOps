@@ -40,7 +40,19 @@ flowchart LR
     api --> postgres
     worker --> postgres
 ```
+## Screenshots
 
+### Fleet Dashboard
+![Fleet dashboard](docs/screenshots/fleet-dashboard.png)
+
+### Vehicle Detail
+![Vehicle detail](docs/screenshots/vehicle-detail.png)
+
+### Event Timeline
+![Event timeline](docs/screenshots/event-timeline.png)
+
+### Gateway Metrics
+![Gateway metrics](docs/screenshots/gateway-metrics.png)
 ## How to use:
 
 `make up` starts:
