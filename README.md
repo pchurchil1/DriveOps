@@ -1,6 +1,7 @@
+![Integration Smoke](https://github.com/pchurchil1/DriveOps/actions/workflows/integration.yml/badge.svg)
 # DriveOps: Vehicle Telemetry Platform
 
-One-command orchestration for a full-stack Vehicle Telemetry portfolio app.
+DriveOps is a production-shaped vehicle telemetry platform inspired by OEM/Tier-1 engineering workflows: ingest vehicle events, inspect fleet state, enforce authenticated access, protect APIs with rate limiting, and expose operational health/metrics.
 
 This repo ties together three separate projects:
 
@@ -8,7 +9,7 @@ This repo ties together three separate projects:
 - `fleet-monitoring-dashboard`: React + TypeScript dashboard for fleet inventory and telemetry inspection
 - `api-gateway-rate-limiter`: FastAPI gateway with Redis-backed token bucket rate limiting, proxying, headers, health checks, and metrics
 
-The integrated stack is optimized for demos and interview walkthroughs. The dashboard talks to the gateway, and the gateway proxies to the telemetry API, so normal UI usage exercises auth, persistence, rate limiting, and the reliability layer.
+The integrated stack is designed for reproducible local evaluation: the dashboard talks to the gateway, and the gateway proxies to the telemetry API, so normal UI usage exercises authentication, persistence, rate limiting, observability, and failure handling.
 
 ## What This Proves
 
