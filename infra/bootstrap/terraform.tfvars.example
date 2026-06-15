@@ -1,0 +1,4 @@
+aws_region   = "us-east-2"
+project_name = "driveops"
+github_owner = "pchurchil1"
+github_repo  = "DriveOps"

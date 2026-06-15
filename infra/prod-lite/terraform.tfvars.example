@@ -1,0 +1,15 @@
+aws_region   = "us-east-2"
+project_name = "driveops"
+environment  = "prod-lite"
+
+# AWS Lite cost posture: single task per service and a single-AZ, low-cost RDS instance.
+db_instance_class        = "db.t4g.micro"
+db_allocated_storage     = 20
+gateway_desired_count    = 1
+dashboard_desired_count  = 1
+telemetry_api_desired_count    = 1
+telemetry_worker_desired_count = 1
+
+# These defaults match the current telemetry API seed behavior.
+demo_username = "admin"
+demo_password = "password123"

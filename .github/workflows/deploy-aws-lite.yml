@@ -1,0 +1,176 @@
+name: Deploy AWS Lite
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      telemetry_api_ref:
+        description: Git ref for vehicle-telemetry-api
+        required: false
+        default: main
+      dashboard_ref:
+        description: Git ref for fleet-monitoring-dashboard
+        required: false
+        default: main
+      gateway_ref:
+        description: Git ref for api-gateway-rate-limiter
+        required: false
+        default: main
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION || 'us-east-2' }}
+  TF_DIR: infra/prod-lite
+
+jobs:
+  deploy:
+    name: Deploy prod-lite
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - name: Check out orchestration repo
+        uses: actions/checkout@v4
+
+      - name: Check out telemetry API
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/vehicle-telemetry-api
+          ref: ${{ github.event.inputs.telemetry_api_ref || 'main' }}
+          path: .ci/vehicle-telemetry-api
+
+      - name: Check out dashboard
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/fleet-monitoring-dashboard
+          ref: ${{ github.event.inputs.dashboard_ref || 'main' }}
+          path: .ci/fleet-monitoring-dashboard
+
+      - name: Check out gateway
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/api-gateway-rate-limiter
+          ref: ${{ github.event.inputs.gateway_ref || 'main' }}
+          path: .ci/api-gateway-rate-limiter
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform init
+        run: |
+          terraform -chdir="$TF_DIR" init \
+            -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" \
+            -backend-config="key=driveops/prod-lite.tfstate" \
+            -backend-config="region=${{ env.AWS_REGION }}" \
+            -backend-config="dynamodb_table=${{ vars.TF_STATE_LOCK_TABLE }}" \
+            -backend-config="encrypt=true"
+
+      - name: Ensure ECR repositories exist
+        run: terraform -chdir="$TF_DIR" apply -auto-approve -input=false -target=aws_ecr_repository.app
+
+      - name: Log in to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set image URIs
+        run: |
+          IMAGE_TAG="${GITHUB_SHA::12}"
+          ECR_REPOS="$(terraform -chdir="$TF_DIR" output -json ecr_repository_urls)"
+          DASHBOARD_REPO="$(jq -r '.dashboard' <<<"$ECR_REPOS")"
+          GATEWAY_REPO="$(jq -r '.gateway' <<<"$ECR_REPOS")"
+          TELEMETRY_API_REPO="$(jq -r '.["telemetry-api"]' <<<"$ECR_REPOS")"
+          echo "DASHBOARD_IMAGE=$DASHBOARD_REPO:$IMAGE_TAG" >> "$GITHUB_ENV"
+          echo "GATEWAY_IMAGE=$GATEWAY_REPO:$IMAGE_TAG" >> "$GITHUB_ENV"
+          echo "TELEMETRY_API_IMAGE=$TELEMETRY_API_REPO:$IMAGE_TAG" >> "$GITHUB_ENV"
+
+      - name: Build dashboard image
+        run: docker build --build-arg VITE_API_BASE_URL=/api/v1 -t "$DASHBOARD_IMAGE" .ci/fleet-monitoring-dashboard
+
+      - name: Build gateway image
+        run: docker build -t "$GATEWAY_IMAGE" .ci/api-gateway-rate-limiter
+
+      - name: Build telemetry API image
+        run: docker build -t "$TELEMETRY_API_IMAGE" .ci/vehicle-telemetry-api
+
+      - name: Push images
+        run: |
+          docker push "$DASHBOARD_IMAGE"
+          docker push "$GATEWAY_IMAGE"
+          docker push "$TELEMETRY_API_IMAGE"
+
+      - name: Apply prod-lite infrastructure and task definitions
+        run: |
+          terraform -chdir="$TF_DIR" apply -auto-approve -input=false \
+            -var="dashboard_image=$DASHBOARD_IMAGE" \
+            -var="gateway_image=$GATEWAY_IMAGE" \
+            -var="telemetry_api_image=$TELEMETRY_API_IMAGE"
+
+      - name: Run database migration and seed task
+        run: |
+          CLUSTER_NAME="$(terraform -chdir="$TF_DIR" output -raw cluster_name)"
+          TASK_DEFINITION="$(terraform -chdir="$TF_DIR" output -raw migration_task_definition_arn)"
+          SUBNET_IDS="$(terraform -chdir="$TF_DIR" output -raw public_subnet_ids_csv)"
+          SECURITY_GROUP_ID="$(terraform -chdir="$TF_DIR" output -raw ecs_security_group_id)"
+          LOG_GROUP="$(terraform -chdir="$TF_DIR" output -raw telemetry_migrate_log_group)"
+
+          RUN_TASK_OUTPUT="$(
+            aws ecs run-task \
+              --cluster "$CLUSTER_NAME" \
+              --task-definition "$TASK_DEFINITION" \
+              --launch-type FARGATE \
+              --network-configuration "awsvpcConfiguration={subnets=[$SUBNET_IDS],securityGroups=[$SECURITY_GROUP_ID],assignPublicIp=ENABLED}" \
+              --output json
+          )"
+          TASK_ARN="$(jq -r '.tasks[0].taskArn // empty' <<<"$RUN_TASK_OUTPUT")"
+          if [ -z "$TASK_ARN" ]; then
+            jq '.failures' <<<"$RUN_TASK_OUTPUT"
+            exit 1
+          fi
+
+          aws ecs wait tasks-stopped --cluster "$CLUSTER_NAME" --tasks "$TASK_ARN"
+          EXIT_CODE="$(
+            aws ecs describe-tasks \
+              --cluster "$CLUSTER_NAME" \
+              --tasks "$TASK_ARN" \
+              --query "tasks[0].containers[?name=='telemetry-migrate'].exitCode | [0]" \
+              --output text
+          )"
+          if [ "$EXIT_CODE" != "0" ]; then
+            aws logs tail "$LOG_GROUP" --since 20m --format short || true
+            exit 1
+          fi
+
+      - name: Wait for ECS services
+        run: |
+          CLUSTER_NAME="$(terraform -chdir="$TF_DIR" output -raw cluster_name)"
+          SERVICES="$(terraform -chdir="$TF_DIR" output -json service_names)"
+          aws ecs wait services-stable \
+            --cluster "$CLUSTER_NAME" \
+            --services \
+              "$(jq -r '.dashboard' <<<"$SERVICES")" \
+              "$(jq -r '.gateway' <<<"$SERVICES")" \
+              "$(jq -r '.telemetry_api' <<<"$SERVICES")" \
+              "$(jq -r '.telemetry_worker' <<<"$SERVICES")"
+
+      - name: Smoke test AWS Lite deployment
+        run: |
+          APP_URL="$(terraform -chdir="$TF_DIR" output -raw app_url)"
+          DEMO_USERNAME_SECRET_ARN="$(terraform -chdir="$TF_DIR" output -raw demo_username_secret_arn)"
+          DEMO_PASSWORD_SECRET_ARN="$(terraform -chdir="$TF_DIR" output -raw demo_password_secret_arn)"
+          export DASHBOARD_URL="$APP_URL"
+          export GATEWAY_URL="$APP_URL"
+          export CHECK_API_DIRECT=false
+          export WAIT_SECONDS=300
+          export DEMO_USERNAME="$(aws secretsmanager get-secret-value --secret-id "$DEMO_USERNAME_SECRET_ARN" --query SecretString --output text)"
+          export DEMO_PASSWORD="$(aws secretsmanager get-secret-value --secret-id "$DEMO_PASSWORD_SECRET_ARN" --query SecretString --output text)"
+          bash scripts/smoke.sh

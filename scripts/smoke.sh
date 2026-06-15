@@ -15,6 +15,7 @@ GATEWAY_URL="${GATEWAY_URL:-http://localhost:${GATEWAY_HOST_PORT:-18080}}"
 API_URL="${API_URL:-http://localhost:${API_HOST_PORT:-18000}}"
 API_BASE_URL="${API_URL%/}/api/v1"
 GATEWAY_API_BASE_URL="${GATEWAY_URL%/}/api/v1"
+CHECK_API_DIRECT="${CHECK_API_DIRECT:-true}"
 WAIT_SECONDS="${WAIT_SECONDS:-120}"
 DEMO_USERNAME="${DEMO_USERNAME:-admin}"
 DEMO_PASSWORD="${DEMO_PASSWORD:-password123}"
@@ -74,12 +75,18 @@ require_command grep
 require_command python3
 
 wait_for_url "dashboard" "$DASHBOARD_URL"
-wait_for_url "telemetry API" "${API_BASE_URL}/health"
+if [ "$CHECK_API_DIRECT" = "true" ]; then
+  wait_for_url "telemetry API" "${API_BASE_URL}/health"
+else
+  log "Skipping direct telemetry API health check"
+fi
 wait_for_url "gateway" "${GATEWAY_URL%/}/health"
 
-log "Checking telemetry API health"
-api_health="$(curl -fsS "${API_BASE_URL}/health")"
-assert_json_field "$api_health" "data.get('status') == 'ok'" "telemetry API health status is not ok"
+if [ "$CHECK_API_DIRECT" = "true" ]; then
+  log "Checking telemetry API health"
+  api_health="$(curl -fsS "${API_BASE_URL}/health")"
+  assert_json_field "$api_health" "data.get('status') == 'ok'" "telemetry API health status is not ok"
+fi
 
 log "Checking gateway health"
 gateway_health="$(curl -fsS "${GATEWAY_URL%/}/health")"

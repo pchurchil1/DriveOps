@@ -141,6 +141,9 @@ make logs     # follow all logs
 make health   # check telemetry API and gateway health
 make metrics  # print gateway Prometheus metrics
 make smoke    # run end-to-end portfolio smoke checks
+make aws-smoke # run smoke checks against an AWS ALB URL
+make tf-fmt    # format Terraform files
+make tf-validate # validate bootstrap and prod-lite Terraform
 make reset    # stop containers and remove volumes
 ```
 
@@ -344,13 +347,91 @@ docker compose logs -f telemetry-api
 
 ## CI
 
-The top-level integration workflow validates Compose configuration, checks out the three sibling repos, starts the full stack, and runs `make smoke`.
+The top-level CI workflow checks out all four repos and runs:
 
-The individual product repos still own their own unit/build CI:
-
-- Backend API tests and Postgres integration tests
-- Dashboard lint/build
+- Telemetry API unit tests and Postgres integration tests
 - Gateway route, proxy, and rate limiter tests
+- Dashboard lint/build
+- Docker Compose validation and local integrated smoke tests
+- Terraform format and validation for AWS Lite infrastructure
+
+## AWS Lite Deployment
+
+AWS Lite deploys the same system to a low-cost ECS Fargate stack:
+
+- ECS Fargate services for dashboard, gateway, telemetry API, and telemetry worker
+- Redis as a sidecar in the gateway task
+- ECR repositories for the deployable images
+- Public HTTP Application Load Balancer
+- Single-AZ private RDS Postgres
+- Secrets Manager for database/JWT/demo values
+- CloudWatch logs
+- GitHub Actions OIDC for AWS access
+- Cloud Map private DNS so the gateway can reach the telemetry API internally
+
+Lite intentionally skips CloudFront, custom domains, ACM HTTPS, ElastiCache, NAT gateways, autoscaling, and multi-AZ RDS.
+
+### Bootstrap AWS
+
+From an AWS-authenticated shell, create the Terraform state bucket, lock table, and GitHub OIDC role:
+
+```bash
+terraform -chdir=infra/bootstrap init
+terraform -chdir=infra/bootstrap apply
+```
+
+Add these repository variables in GitHub for `pchurchil1/DriveOps`:
+
+```text
+AWS_ROLE_TO_ASSUME=<github_actions_role_arn output>
+TF_STATE_BUCKET=<state_bucket_name output>
+TF_STATE_LOCK_TABLE=<state_lock_table_name output>
+AWS_REGION=us-east-2
+```
+
+Create or review the GitHub `production` environment before enabling deploys from `main`.
+
+### Deploy
+
+The `Deploy AWS Lite` workflow runs on `main` and can also be started manually.
+
+It performs this sequence:
+
+1. Assumes the AWS role with GitHub OIDC.
+2. Ensures ECR repositories exist.
+3. Builds and pushes SHA-tagged dashboard, gateway, and telemetry API images.
+4. Applies `infra/prod-lite`.
+5. Runs the one-off ECS migration/seed task.
+6. Waits for ECS services to stabilize.
+7. Runs smoke checks against the ALB URL.
+
+To test an existing AWS Lite deployment locally:
+
+```bash
+DASHBOARD_URL=http://your-alb-dns-name make aws-smoke
+```
+
+For AWS Lite, the telemetry API is private. Public traffic goes:
+
+```text
+Browser -> ALB -> Gateway -> Telemetry API -> RDS
+```
+
+### Terraform
+
+Validate locally without touching AWS state:
+
+```bash
+make tf-validate
+```
+
+Format Terraform:
+
+```bash
+make tf-fmt
+```
+
+See [infra/prod-lite/README.md](infra/prod-lite/README.md) for stack-specific details.
 
 ## Troubleshooting
 
