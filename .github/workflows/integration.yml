@@ -36,22 +36,22 @@ jobs:
 
     steps:
       - name: Check out orchestration repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Check out telemetry API
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: ${{ github.repository_owner }}/vehicle-telemetry-api
           path: .ci/vehicle-telemetry-api
 
       - name: Check out dashboard
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: ${{ github.repository_owner }}/fleet-monitoring-dashboard
           path: .ci/fleet-monitoring-dashboard
 
       - name: Check out gateway
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: ${{ github.repository_owner }}/api-gateway-rate-limiter
           path: .ci/api-gateway-rate-limiter
@@ -88,7 +88,7 @@ jobs:
           pytest
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 24
           cache: npm
@@ -123,10 +123,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out orchestration repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Terraform
-        uses: hashicorp/setup-terraform@v3
+        uses: hashicorp/setup-terraform@v4
 
       - name: Check Terraform formatting
         run: terraform fmt -check -recursive infra
@@ -143,10 +143,12 @@ jobs:
 
       - name: Configure AWS credentials for optional plan
         if: ${{ vars.AWS_ROLE_TO_ASSUME != '' }}
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v6.1.0
         with:
           role-to-assume: ${{ vars.AWS_ROLE_TO_ASSUME }}
           aws-region: ${{ env.AWS_REGION }}
+          role-session-name: DriveOpsPlan-${{ github.run_id }}
+          mask-aws-account-id: true
 
       - name: Terraform plan prod-lite
         if: ${{ vars.AWS_ROLE_TO_ASSUME != '' }}

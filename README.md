@@ -404,6 +404,17 @@ AWS_REGION=us-east-2
 
 Create or review the GitHub `production` environment before enabling deploys from `main`.
 
+If the deploy workflow fails at `Configure AWS credentials` with `Credentials could not be loaded`, confirm these variables exist at the repository or `production` environment level:
+
+```text
+AWS_ROLE_TO_ASSUME
+TF_STATE_BUCKET
+TF_STATE_LOCK_TABLE
+AWS_REGION
+```
+
+`AWS_ROLE_TO_ASSUME` must be the `github_actions_role_arn` output from the bootstrap stack. Because the deploy job uses the GitHub `production` environment, the AWS trust policy must allow the subject `repo:pchurchil1/DriveOps:environment:production`; the bootstrap Terraform includes that subject.
+
 ### Deploy
 
 The `Deploy AWS Lite` workflow runs on `main` and can also be started manually.

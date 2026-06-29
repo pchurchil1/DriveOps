@@ -34,46 +34,69 @@ jobs:
 
     steps:
       - name: Check out orchestration repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Check out telemetry API
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: ${{ github.repository_owner }}/vehicle-telemetry-api
           ref: ${{ github.event.inputs.telemetry_api_ref || 'main' }}
           path: .ci/vehicle-telemetry-api
 
       - name: Check out dashboard
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: ${{ github.repository_owner }}/fleet-monitoring-dashboard
           ref: ${{ github.event.inputs.dashboard_ref || 'main' }}
           path: .ci/fleet-monitoring-dashboard
 
       - name: Check out gateway
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: ${{ github.repository_owner }}/api-gateway-rate-limiter
           ref: ${{ github.event.inputs.gateway_ref || 'main' }}
           path: .ci/api-gateway-rate-limiter
 
+      - name: Validate deployment variables
+        env:
+          AWS_ROLE_TO_ASSUME: ${{ vars.AWS_ROLE_TO_ASSUME }}
+          TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+          TF_STATE_LOCK_TABLE: ${{ vars.TF_STATE_LOCK_TABLE }}
+        run: |
+          missing=0
+          for name in AWS_ROLE_TO_ASSUME TF_STATE_BUCKET TF_STATE_LOCK_TABLE; do
+            if [ -z "${!name}" ]; then
+              echo "::error title=Missing GitHub variable::$name is required for AWS Lite deploys."
+              missing=1
+            fi
+          done
+          exit "$missing"
+
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v6.1.0
         with:
           role-to-assume: ${{ vars.AWS_ROLE_TO_ASSUME }}
           aws-region: ${{ env.AWS_REGION }}
+          role-session-name: DriveOpsDeploy-${{ github.run_id }}
+          mask-aws-account-id: true
+
+      - name: Verify AWS identity
+        run: aws sts get-caller-identity
 
       - name: Set up Terraform
-        uses: hashicorp/setup-terraform@v3
+        uses: hashicorp/setup-terraform@v4
 
       - name: Terraform init
         run: |
           terraform -chdir="$TF_DIR" init \
-            -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" \
+            -backend-config="bucket=$TF_STATE_BUCKET" \
             -backend-config="key=driveops/prod-lite.tfstate" \
             -backend-config="region=${{ env.AWS_REGION }}" \
-            -backend-config="dynamodb_table=${{ vars.TF_STATE_LOCK_TABLE }}" \
+            -backend-config="dynamodb_table=$TF_STATE_LOCK_TABLE" \
             -backend-config="encrypt=true"
+        env:
+          TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+          TF_STATE_LOCK_TABLE: ${{ vars.TF_STATE_LOCK_TABLE }}
 
       - name: Ensure ECR repositories exist
         run: terraform -chdir="$TF_DIR" apply -auto-approve -input=false -target=aws_ecr_repository.app
